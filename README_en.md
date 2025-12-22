@@ -158,7 +158,8 @@ https://modelscope.cn/models/gongjy/MiniMind2-V-PyTorch/resolve/master/llm_512.p
 ### 1. Environment Preparation
 
 ```bash
-pip install -r requirements.txt -i https://mirrors.aliyun.com/pypi/simple
+# If uv isn't installed yet: pipx install uv
+uv sync --index-url https://mirrors.aliyun.com/pypi/simple
 ```
 
 ### 2. Download the model
@@ -188,7 +189,8 @@ python web_demo_vlm.py
 ### 1. Environment Preparation
 
 ```bash
-pip install -r requirements.txt -i https://mirrors.aliyun.com/pypi/simple
+# If uv isn't installed yet: pipx install uv
+uv sync --index-url https://mirrors.aliyun.com/pypi/simple
 ```
 
 <details style="color:rgb(128,128,128)">

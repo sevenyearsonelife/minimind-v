@@ -152,7 +152,8 @@ https://modelscope.cn/models/gongjy/MiniMind2-V-PyTorch/resolve/master/llm_512.p
 ### 1.环境准备
 
 ```bash
-pip install -r requirements.txt -i https://pypi.tuna.tsinghua.edu.cn/simple
+# 如未安装uv：pipx install uv
+uv sync --index-url https://pypi.tuna.tsinghua.edu.cn/simple
 ```
 
 ### 2.下载模型
@@ -182,7 +183,8 @@ python web_demo_vlm.py
 ### 1.环境准备
 
 ```bash
-pip install -r requirements.txt -i https://pypi.tuna.tsinghua.edu.cn/simple
+# 如未安装uv：pipx install uv
+uv sync --index-url https://pypi.tuna.tsinghua.edu.cn/simple
 ```
 
 <details style="color:rgb(128,128,128)">
