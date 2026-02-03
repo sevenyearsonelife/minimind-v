@@ -208,23 +208,21 @@ print(torch.cuda.is_available())
 <details style="color:rgb(128,128,128)">
 <summary>注：数据集须知</summary>
 
+【注1】之前需解压50万零碎的图像文件可能非常慢。2025-12-27起，数据集格式统一为Parquet，图文一体化存储，体积更小，无需解压，加载更快。
+
+【注2】Parquet是列式存储格式，支持高效压缩和快速读取。如果你对它感到陌生，可以预览数据内容，在`dataset/`目录下执行`python lm_dataset.py`可视化前5条图文对
+
 Pretrain数据：
 ```bash
-wget https://hf-mirror.com/datasets/jingyaogong/minimind-v_dataset/resolve/main/pretrain_data.jsonl
-wget https://hf-mirror.com/datasets/jingyaogong/minimind-v_dataset/resolve/main/pretrain_images.zip
-unzip pretrain_images.zip && rm pretrain_images.zip
+wget https://hf-mirror.com/datasets/jingyaogong/minimind-v_dataset/resolve/main/pretrain_data.parquet
 ```
 
 SFT数据：
 ```bash
-wget https://hf-mirror.com/datasets/jingyaogong/minimind-v_dataset/resolve/main/sft_data.jsonl
-wget https://hf-mirror.com/datasets/jingyaogong/minimind-v_dataset/resolve/main/sft_images.zip
-unzip sft_images.zip && rm sft_images.zip
+wget https://hf-mirror.com/datasets/jingyaogong/minimind-v_dataset/resolve/main/sft_data.parquet
 ```
 
-`*.jsonl`为问答文本，`*images`为配套的图片数据，下载完成后需要解压图像数据。
-
-请预留~5GB空间存放数据集，若无多余空间存放pretrain数据，可尝试跳过pretrain训练步骤直接进行sft训练。
+建议预留~2GB空间存放数据集，若无多余空间存放pretrain数据，可尝试跳过pretrain训练步骤直接进行sft训练。
 
 </details>
 
@@ -426,73 +424,6 @@ VLM的输入依然是一段文本，其中包含特殊的`<image>`占位符。
 
 ![input](./images/minimind-v-input.png)
 
-一次性多图的实现方法就是通过注入多个`<image>`图像占位符进行实现，不需要修改任何框架。
-
-<details>
-<summary> 视频理解的拓展思路 </summary>
-
-write by [@xinyanghuang7](https://github.com/xinyanghuang7)
-
-对于多模态大模型的视频理解能力，一个可行的思路是参考现有MiniCPM-V 2.6 进行视频理解的Python示例。
-主要思想是通过提取视频关键帧，而后进行多图推理。
-因此，如果希望在MiniMind-V中添加视频理解能力，可以在现有多图训练的基础上，参考此python脚本中对于关键帧的提取方法，而后加大训练文件中支持图片的数量。
-所支持的MAX_NUM_FRAMES越多，所消耗的显存越大。
-
-```text
-import torch
-from PIL import Image
-from transformers import AutoModel, AutoTokenizer
-from decord import VideoReader, cpu  # pip install decord
-
-model = AutoModel.from_pretrained('openbmb/MiniCPM-V-2_6', trust_remote_code=True,
-                                  attn_implementation='sdpa',
-                                  torch_dtype=torch.bfloat16)  # sdpa or flash_attention_2, no eager
-model = model.eval().cuda()
-tokenizer = AutoTokenizer.from_pretrained('openbmb/MiniCPM-V-2_6', trust_remote_code=True)
-
-MAX_NUM_FRAMES = 64  # if cuda OOM set a smaller number
-
-
-def encode_video(video_path):
-    def uniform_sample(l, n):
-        gap = len(l) / n
-        idxs = [int(i * gap + gap / 2) for i in range(n)]
-        return [l[i] for i in idxs]
-
-    vr = VideoReader(video_path, ctx=cpu(0))
-    sample_fps = round(vr.get_avg_fps() / 1)  # FPS
-    frame_idx = [i for i in range(0, len(vr), sample_fps)]
-    if len(frame_idx) > MAX_NUM_FRAMES:
-        frame_idx = uniform_sample(frame_idx, MAX_NUM_FRAMES)
-    frames = vr.get_batch(frame_idx).asnumpy()
-    frames = [Image.fromarray(v.astype('uint8')) for v in frames]
-    print('num frames:', len(frames))
-    return frames
-
-
-video_path = "video_test.mp4"
-frames = encode_video(video_path)
-question = "Describe the video"
-msgs = [
-    {'role': 'user', 'content': frames + [question]},
-]
-
-# Set decode params for video
-params = {}
-params["use_image_id"] = False
-params["max_slice_nums"] = 2  # 如果cuda OOM且视频分辨率大于448*448可设为1
-
-answer = model.chat(
-    image=None,
-    msgs=msgs,
-    tokenizer=tokenizer,
-    **params
-)
-print(answer)
-```
-
-</details>
-
 至此，`MiniMind-V`的所有细节已经呈现完毕。
 `MiniMind-V`的模型子类完全继承自`MiniMind`，
 仅基于后者做**最小**变更而产生，
@@ -546,33 +477,6 @@ print(answer)
 }
 ```
 
-(sft_vlm_data_multi.jsonl) 多图指令微调数据集格式：
-
-```json lines
-{
-  "conversations": [
-    {
-      "role": "user",
-      "content": "context: Source Image: <image> Target Image: <image> Instruction: What is the correct image edit instruction that can transfrom the source image to target image?<image>"
-    },
-    {
-      "role": "assistant",
-      "content": "take the people out of the back in the photo. Remove the two people behind the woman in the white dress and the man in the blue suit. remove people behind the couple in the centre"
-    }
-  ],
-  "image": "0.jpg, 1.jpg"
-}
-```
-
-<details>
-<summary> 数据说明 </summary>
-
-* 多图数据集规模相对较小且为英文对话，数据集仅包含两图对比的场景，因此微调效果有限，这里只提供一种参考思路。
-
-
-* `jsonl`均为文本指令，`images.zip`均为配套的图像数据（下载后需要解压）
-
-</details>
 
 数据集下载地址：([ModelScope](https://www.modelscope.cn/datasets/gongjy/minimind-v_dataset) | [HuggingFace](https://huggingface.co/datasets/jingyaogong/minimind-v_dataset))
 
@@ -585,10 +489,6 @@ print(answer)
 > train_sft_vlm
 
 指令微调从300K条真实对话数据集中学习对图片提问的真实问答格式，更符合与人类的交流习惯。
-
-> train_sft_vlm
-
-多图微调提供demo：鸟类对比数据集，长度为13.6k的真实问答格式。
 
 训练时均冻结visual encoder也就是clip模型梯度，
 只训练Projection和LLM两部分。
@@ -696,27 +596,6 @@ SFT [512+8] & [768+16]
   </tbody>
 </table>
 
-#### 多图对话（效果十分有限）
-
-<table>
-  <thead>
-    <tr>
-      <th>图片1</th>
-      <th>图片2</th>
-      <th>512_sft_multi</th>
-      <th>768_sft_multi</th>
-    </tr>
-  </thead>
-  <tbody>
-    <tr>
-      <td><img src="./dataset/eval_multi_images/bird/0.jpg" alt="a-bird.png"></td>
-      <td><img src="./dataset/eval_multi_images/bird/1.jpg" alt="a-bird.png"></td>
-      <td>这幅图像显示了一种鸟簸戮的场景：一个女人站在红绿相间的红绿相间的紫色鸟簸戴在她身上。女人站在红色的鸟簸戴在她身上，而她的翻领上的那只红鸟则站在她身后。</td>
-      <td>这两只鸟在同一片树林中飞翔，有的位于画面中心，而另一些则较小，形成了鲜明对比。这种鸟类的出现突出了其飞行能力和适应性，因为它们能够在树林中快速迅速移动。此外，两只鸟的位置不同，一个在图像的左边，另一个在右边，这表明它们在同一片树林中移动得很近。这种鸟类的自然行为也有助于区分这两种鸟类物种。</td>
-    </tr>
-  </tbody>
-</table>
-
 ### 效果小结：
 
 视觉信号对于LLM视作一种特殊的外语，
@@ -748,8 +627,7 @@ LLM性能越强，对应的VLM必然越强，此时效果增益会很明显。
 
 ## 😊鸣谢
 
-<a href="https://github.com/xinyanghuang7"><b>@xinyanghuang7</b></a>:
-<a href="https://github.com/xinyanghuang7/minimind-v/tree/hxy">🔗实现了完整的多图分支</a>
+<a href="https://github.com/xinyanghuang7"><b>@xinyanghuang7</b></a>: <a href="https://github.com/xinyanghuang7/minimind-v/tree/hxy">多图vlm分支</a> | <a href="https://github.com/jingyaogong/minimind-v/tree/32cf4c5c01337231fd907b92d513de8945594263">仓库截至此版本提供</a> 
 
 <details close> 
 <summary> <b>参考链接 & 感谢以下优秀的论文或项目</b> </summary>
